@@ -1,0 +1,42 @@
+
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 360">
+  <!-- Jeans -->
+  <path
+    d="M75 45 L225 45 L245 315 L165 315 L150 165 L135 315 L55 315Z"
+    fill="#759BCB"
+    stroke="#466A9C"
+    stroke-width="5"
+    stroke-linejoin="round"
+  />
+
+  <!-- Waistband -->
+  <path
+    d="M75 45 L225 45 L220 95 L80 95Z"
+    fill="#5E82B1"
+  />
+
+  <!-- Front seam -->
+  <path
+    d="M150 95 L150 165"
+    stroke="#466A9C"
+    stroke-width="4"
+  />
+
+  <!-- Pockets -->
+  <path
+    d="M85 110 L125 110 L130 145 L80 145Z M175 110 L215 110 L220 145 L170 145Z"
+    fill="none"
+    stroke="#466A9C"
+    stroke-width="4"
+  />
+
+  <!-- Leg hems -->
+  <path
+    d="M55 315 L135 315 M165 315 L245 315"
+    stroke="#466A9C"
+    stroke-width="7"
+  />
+
+  <!-- Button -->
+  <circle cx="150" cy="72" r="5" fill="#E9D3A7"/>
+</svg>
