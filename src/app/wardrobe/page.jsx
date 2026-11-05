@@ -136,7 +136,6 @@ const mainCategories = Object.keys(categoryData);
 
 export default function WardrobePage() {
   const [items, setItems] = useState([]);
-console.log("DEMO ITEMS:", items);
   const [activeCategory, setActiveCategory] = useState("All items");
   const [activeSubcategory, setActiveSubcategory] = useState("All");
   const [searchTerm, setSearchTerm] = useState("");
