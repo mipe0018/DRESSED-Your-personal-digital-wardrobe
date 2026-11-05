@@ -42,10 +42,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="da"
-      className={`${playfair.variable} ${dmSans.variable} ${dmMono.variable}`}
-    >
+    <html lang="en" data-scroll-behavior="smooth">
       <body className="min-h-screen flex flex-col">
         {children}
       </body>

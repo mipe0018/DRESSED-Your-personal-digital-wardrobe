@@ -1,18 +1,12 @@
 
-import type { HTMLAttributes, ReactNode } from "react";
 import clsx from "clsx";
-
-type CardProps = HTMLAttributes<HTMLDivElement> & {
-  children: ReactNode;
-  padding?: "small" | "medium" | "large";
-};
 
 export default function Card({
   children,
   padding = "medium",
   className,
   ...props
-}: CardProps) {
+}) {
   return (
     <div
       className={clsx(

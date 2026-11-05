@@ -1,14 +1,5 @@
 
-import type { ButtonHTMLAttributes, ReactNode } from "react";
 import clsx from "clsx";
-
-type ButtonVariant = "primary" | "secondary" | "outline" | "ghost";
-
-type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: ButtonVariant;
-  children: ReactNode;
-  fullWidth?: boolean;
-};
 
 export default function Button({
   variant = "primary",
@@ -17,7 +8,7 @@ export default function Button({
   className,
   type = "button",
   ...props
-}: ButtonProps) {
+}) {
   return (
     <button
       type={type}
