@@ -15,6 +15,7 @@ import {
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import Badge from "@/components/ui/Badge";
+import PublicHeader from "@/components/layout/PublicHeader";
 
 const wardrobeItems = [
   {
@@ -72,48 +73,9 @@ export default function Home() {
   return (
     <main className="min-h-screen overflow-hidden bg-[#FFF0F6] text-[#392D35]">
 
-      {/* PUBLIC HEADER */}
-      <header className="relative z-20 border-b border-[#F2D6E3] bg-[#FFF0F6]">
-        <div className="page-container flex min-h-[78px] items-center justify-between gap-4">
-
-          <Link href="/" className="group flex flex-col leading-none">
-            <span className="font-serif text-3xl font-bold tracking-tight text-[#392D35]">
-              DRESSED<span className="text-[#ED4F8E]">.</span>
-            </span>
-            <span className="mt-1 text-[9px] font-semibold tracking-[0.25em] text-[#A17D8D]">
-              YOUR DIGITAL WARDROBE
-            </span>
-          </Link>
-
-          <nav className="hidden items-center gap-8 text-sm font-semibold md:flex">
-            <a href="#features" className="transition hover:text-[#D93676]">
-              Discover
-            </a>
-            <a href="#how-it-works" className="transition hover:text-[#D93676]">
-              How it works
-            </a>
-            <a href="#pricing" className="transition hover:text-[#D93676]">
-              Pricing
-            </a>
-          </nav>
-
-          <div className="flex items-center gap-2 sm:gap-4">
-            <Link
-              href="/login"
-              className="px-2 py-2 text-sm font-semibold transition hover:text-[#D93676]"
-            >
-              Log in
-            </Link>
-
-            <Link
-              href="/signup"
-              className="rounded-full bg-[#ED4F8E] px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-[#D93676] sm:px-5 sm:text-sm"
-            >
-              Join DRESSED <ArrowRight className="ml-1 inline" size={15} />
-            </Link>
-          </div>
-        </div>
-      </header>
+    
+     {/* PUBLIC HEADER */}
+<PublicHeader />
 
       {/* HERO */}
       <section className="relative">

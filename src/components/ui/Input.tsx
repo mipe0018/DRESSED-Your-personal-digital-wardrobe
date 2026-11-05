@@ -1,11 +1,5 @@
 
-import type { InputHTMLAttributes } from "react";
 import clsx from "clsx";
-
-type InputProps = InputHTMLAttributes<HTMLInputElement> & {
-  label?: string;
-  error?: string;
-};
 
 export default function Input({
   label,
@@ -13,7 +7,7 @@ export default function Input({
   id,
   className,
   ...props
-}: InputProps) {
+}) {
   const inputId = id ?? props.name;
 
   return (
@@ -37,7 +31,9 @@ export default function Input({
           className
         )}
         aria-invalid={Boolean(error)}
-        aria-describedby={error && inputId ? `${inputId}-error` : undefined}
+        aria-describedby={
+          error && inputId ? `${inputId}-error` : undefined
+        }
         {...props}
       />
 
