@@ -1,12 +1,16 @@
-
+import type { HTMLAttributes } from "react";
 import clsx from "clsx";
+
+type BadgeProps = HTMLAttributes<HTMLSpanElement> & {
+  variant?: "pink" | "neutral" | "success" | "warning";
+};
 
 export default function Badge({
   children,
   variant = "pink",
   className,
   ...props
-}) {
+}: BadgeProps) {
   return (
     <span
       className={clsx(

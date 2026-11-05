@@ -134,33 +134,8 @@ const categoryData = {
 
 const mainCategories = Object.keys(categoryData);
 
-// TEMPORARY DEMO ITEMS
-const demoItems = [
-  {
-    id: "demo-sweater",
-    name: "Pink Knit Sweater",
-    category: "Tops",
-    subcategory: "Knitwear",
-    image: "/images/demo/sweater.svg",
-  },
-  {
-    id: "demo-jeans",
-    name: "Blue Jeans",
-    category: "Bottoms",
-    subcategory: "Jeans",
-    image: "/images/demo/jeans.svg",
-  },
-  {
-    id: "demo-sneakers",
-    name: "White Sneakers",
-    category: "Shoes",
-    subcategory: "Sneakers",
-    image: "/images/demo/sneakers.svg",
-  },
-];
-
 export default function WardrobePage() {
-  const [items, setItems] = useState(demoItems);
+  const [items, setItems] = useState([]);
 console.log("DEMO ITEMS:", items);
   const [activeCategory, setActiveCategory] = useState("All items");
   const [activeSubcategory, setActiveSubcategory] = useState("All");

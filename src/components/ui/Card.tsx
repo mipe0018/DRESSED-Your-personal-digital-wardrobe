@@ -1,12 +1,16 @@
-
+import type { HTMLAttributes } from "react";
 import clsx from "clsx";
+
+type CardProps = HTMLAttributes<HTMLDivElement> & {
+  padding?: "small" | "medium" | "large";
+};
 
 export default function Card({
   children,
   padding = "medium",
   className,
   ...props
-}) {
+}: CardProps) {
   return (
     <div
       className={clsx(

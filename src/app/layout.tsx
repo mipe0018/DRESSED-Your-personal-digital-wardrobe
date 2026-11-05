@@ -1,5 +1,6 @@
 
 import type { Metadata } from "next";
+import "server-only";
 import {
   Playfair_Display,
   DM_Sans,

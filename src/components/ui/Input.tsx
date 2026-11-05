@@ -1,5 +1,14 @@
-
+import type { InputHTMLAttributes } from "react";
 import clsx from "clsx";
+
+type InputProps = Omit<
+  InputHTMLAttributes<HTMLInputElement>,
+  "id"
+> & {
+  label?: string;
+  error?: string;
+  id?: string;
+};
 
 export default function Input({
   label,
@@ -7,7 +16,7 @@ export default function Input({
   id,
   className,
   ...props
-}) {
+}: InputProps) {
   const inputId = id ?? props.name;
 
   return (
