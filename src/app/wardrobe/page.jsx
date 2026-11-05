@@ -11,7 +11,6 @@ import {
   Trash2,
   ImagePlus,
   ChevronRight,
-  Sparkles,
 } from "lucide-react";
 
 import AppNavigation from "@/components/layout/app/AppNavigation";
@@ -134,31 +133,35 @@ const categoryData = {
 };
 
 const mainCategories = Object.keys(categoryData);
+
+// TEMPORARY DEMO ITEMS
 const demoItems = [
   {
     id: "demo-sweater",
     name: "Pink Knit Sweater",
     category: "Tops",
     subcategory: "Knitwear",
-    image: "sweater",
+    image: "/images/demo/sweater.svg",
   },
   {
     id: "demo-jeans",
     name: "Blue Jeans",
     category: "Bottoms",
     subcategory: "Jeans",
-    image: "jeans",
+    image: "/images/demo/jeans.svg",
   },
   {
     id: "demo-sneakers",
     name: "White Sneakers",
     category: "Shoes",
     subcategory: "Sneakers",
-    image: "sneakers",
+    image: "/images/demo/sneakers.svg",
   },
 ];
+
 export default function WardrobePage() {
   const [items, setItems] = useState(demoItems);
+console.log("DEMO ITEMS:", items);
   const [activeCategory, setActiveCategory] = useState("All items");
   const [activeSubcategory, setActiveSubcategory] = useState("All");
   const [searchTerm, setSearchTerm] = useState("");
@@ -179,6 +182,7 @@ export default function WardrobePage() {
 
   const formSubcategories = categoryData[itemCategory];
 
+  // FILTER ITEMS
   const filteredItems = items.filter((item) => {
     const matchesCategory =
       activeCategory === "All items" ||
@@ -203,12 +207,14 @@ export default function WardrobePage() {
     );
   });
 
+  // CATEGORY SELECTION
   function selectCategory(category) {
     setActiveCategory(category);
     setActiveSubcategory("All");
     setShowFavorites(false);
   }
 
+  // ADD ITEM FORM
   function openForm() {
     setShowForm(true);
   }
@@ -218,9 +224,15 @@ export default function WardrobePage() {
     setItemName("");
     setItemCategory("Tops");
     setItemSubcategory(categoryData.Tops[0]);
+
+    if (imagePreview) {
+      URL.revokeObjectURL(imagePreview);
+    }
+
     setImagePreview("");
   }
 
+  // IMAGE UPLOAD
   function handleImageChange(event) {
     const file = event.target.files?.[0];
 
@@ -231,9 +243,14 @@ export default function WardrobePage() {
       return;
     }
 
+    if (imagePreview) {
+      URL.revokeObjectURL(imagePreview);
+    }
+
     setImagePreview(URL.createObjectURL(file));
   }
 
+  // ADD NEW ITEM
   function handleAddItem(event) {
     event.preventDefault();
 
@@ -248,9 +265,15 @@ export default function WardrobePage() {
     };
 
     setItems((previous) => [...previous, newItem]);
-    closeForm();
+
+    setShowForm(false);
+    setItemName("");
+    setItemCategory("Tops");
+    setItemSubcategory(categoryData.Tops[0]);
+    setImagePreview("");
   }
 
+  // FAVORITES
   function toggleFavorite(id) {
     setFavorites((previous) =>
       previous.includes(id)
@@ -259,6 +282,7 @@ export default function WardrobePage() {
     );
   }
 
+  // DELETE ITEM
   function deleteItem(id) {
     setItems((previous) =>
       previous.filter((item) => item.id !== id)
@@ -299,7 +323,10 @@ export default function WardrobePage() {
         <section className="mt-10">
           <div className="mb-4 flex items-center justify-between">
             <div>
-              <h2 className="font-serif text-xl">My categories</h2>
+              <h2 className="font-serif text-xl">
+                My categories
+              </h2>
+
               <p className="mt-1 text-xs text-dressed-muted">
                 Find your pieces by category.
               </p>
@@ -439,14 +466,11 @@ export default function WardrobePage() {
                 >
                   <div className="relative flex aspect-[3/4] items-center justify-center overflow-hidden rounded-xl bg-dressed-pink-light">
                     {item.image ? (
-                      <svg
-  viewBox="0 0 300 360"
-  className="h-full w-full p-5"
-  role="img"
-  aria-label={item.name}
->
-  <use href={`/images/demo/demo-clothes.svg#${item.image}`} />
-</svg>
+                       <img
+    src={item.image}
+    alt={item.name}
+    className="h-full w-full object-contain p-5"
+  />
                     ) : (
                       <Shirt
                         size={48}
@@ -455,6 +479,7 @@ export default function WardrobePage() {
                       />
                     )}
 
+                    {/* FAVORITE BUTTON */}
                     <button
                       type="button"
                       onClick={() => toggleFavorite(item.id)}
@@ -475,6 +500,7 @@ export default function WardrobePage() {
                       />
                     </button>
 
+                    {/* DELETE BUTTON */}
                     <button
                       type="button"
                       onClick={() => deleteItem(item.id)}
@@ -607,7 +633,10 @@ export default function WardrobePage() {
                 {imagePreview && (
                   <button
                     type="button"
-                    onClick={() => setImagePreview("")}
+                    onClick={() => {
+                      URL.revokeObjectURL(imagePreview);
+                      setImagePreview("");
+                    }}
                     className="mt-2 text-xs font-semibold text-dressed-pink-dark hover:underline"
                   >
                     Remove image
@@ -649,6 +678,7 @@ export default function WardrobePage() {
                   value={itemCategory}
                   onChange={(event) => {
                     const newCategory = event.target.value;
+
                     setItemCategory(newCategory);
                     setItemSubcategory(categoryData[newCategory][0]);
                   }}

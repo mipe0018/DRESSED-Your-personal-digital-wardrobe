@@ -1,0 +1,435 @@
+# DRESSED – Teknisk kompatibilitetsrapport og migrationsplan
+
+**Dato:** 5. november 2026  
+**Projekt:** DRESSED – Genopbygning i Next.js, React, Tailwind og Supabase  
+**Grundlag:** Originalprojektets ZIP-fil, migrationsfiler, kategorimodel, API-ruter og fælles moduler.
+
+---
+
+## 1. Formålet med genopbygningen
+
+DRESSED bliver genopbygget i Next.js med Supabase som database og storage samt OpenAI til AI-funktionerne.
+
+Målet er ikke at opfinde en ny garderobe, men at bevare den eksisterende DRESSED-funktionalitet og tilpasse den til den nye tekniske struktur.
+
+Det betyder:
+
+- Den eksisterende garderobes kategorier og underkategorier skal bevares.
+- Tøj skal fortsat kunne uploades, behandles og gemmes som individuelle garderobeobjekter.
+- AI-genererede tøj-assets skal kunne bruges på den korrekte AI-model.
+- Style Studio skal kunne placere, skalere og lagdele tøj.
+- Outfits skal kunne gemmes og genåbnes.
+- Profile og Wardrobe skal arbejde med samme AI-model og garderobedata.
+- Brugerdata og billeder skal være isoleret pr. bruger.
+- AI-generering skal ske server-side og må ikke kunne omgå brugerens kvoter.
+
+## 2. Den eksisterende garderobes kategorisystem
+
+Den gamle kode definerer 22 gyldige databasekategorier.
+
+| Databaseværdi | Visningsgruppe |
+|---|---|
+| tops | Tops |
+| shirts | Tops |
+| sweaters | Tops |
+| jackets | Outerwear |
+| dresses | Dresses |
+| skirts | Bottoms |
+| pants | Bottoms |
+| shorts | Bottoms |
+| socks | Socks |
+| shoes | Shoes |
+| bags | Accessories |
+| jewelry | Accessories |
+| necklaces | Accessories |
+| earrings | Accessories |
+| bracelets | Accessories |
+| watches | Accessories |
+| glasses | Accessories |
+| sunglasses | Accessories |
+| hats | Accessories |
+| hair-accessories | Accessories |
+| accessories | Accessories |
+| other | Other |
+
+Databasekategorien er den konkrete type tøj eller tilbehør. Visningsgruppen er kun en måde at samle flere kategorier i brugergrænsefladen.
+
+Den gamle kode indeholder også følgende normalisering:
+
+- bottoms → pants
+- one-pieces → dresses
+- hair_accessories → hair-accessories
+
+Det er vigtigt, at den nye løsning bevarer denne form for kompatibilitet, så eksisterende og nye data ikke bliver afvist på grund af forskellige skrivemåder.
+
+### Anbefaling
+
+Vi skal beholde de 22 databasekategorier og bruge separate grupper til filtrering.
+
+Vi skal ikke erstatte dem med en ny, smallere kategorioversigt.
+
+## 3. Sådan skal den nye garderobe og databasen forbindes
+
+DRESSED skal bygges op omkring et fælles datalag, så alle sider bruger de samme data.
+
+### A. Wardrobe
+
+Wardrobe skal være den fælles kilde til alle brugerens tøjobjekter.
+
+Hvert objekt skal mindst have:
+
+- Unikt ID.
+- Bruger-ID.
+- Navn.
+- Databasekategori.
+- Reference til det originale billede.
+- Preview-billede.
+- AI-klargjorte assets.
+- Placering og skaleringsdata.
+- Oprettelses- og opdateringstidspunkt.
+
+Originalbilledet må ikke erstattes af det AI-behandlede billede. Begge skal kunne eksistere.
+
+### B. AI clothing assets
+
+Den gamle løsning bruger `wardrobe_item_ai_assets` til at gemme AI-behandlede versioner af tøjet.
+
+Den nye løsning skal bevare denne struktur og dens relationer.
+
+Hvert AI-asset skal være knyttet til:
+
+- Den bruger, der ejer det.
+- Det relevante garderobeobjekt.
+- Den relevante modeltype (woman eller man).
+- Den relevante karakter, hvor det er nødvendigt.
+- Den anvendte generation version.
+- Filstier til reference og preview.
+
+Den aktive asset-version i den gamle løsning er version 3.
+
+Style Studio skal derfor ikke bruge et ældre eller forkert asset.
+
+### C. Style Studio
+
+Style Studio skal bruge de samme garderobeobjekter som Wardrobe. Der skal ikke oprettes en separat kopi af brugerens garderobe.
+
+Placeringen skal følge denne prioritering:
+
+1. Midlertidig placering under redigering.
+2. Gemte placeringsdata på garderobeobjektet.
+3. Standardplacering baseret på tøjkategorien.
+
+Den gamle løsning har blandt andet følgende ankerpunkter:
+
+- Head
+- Face
+- Neck
+- Shoulders
+- Torso
+- Waist
+- Hips
+- Left hand
+- Right hand
+- Knees
+- Ankles
+- Feet
+- Full body
+- Dress
+
+Derudover har den særskilte placeringer for woman og man, fordi kropsformerne ikke er identiske.
+
+### D. My Looks / Saved Outfits
+
+Gemte outfits skal bruge tabellen `saved_dressed_outfits`.
+
+Den gamle løsning understøtter:
+
+- Et outfitnavn.
+- En tilknyttet AI-model.
+- En modeltype.
+- Mellem 1 og 5 garderobeobjekter.
+- Et unikt outfit-key.
+- Oprettelses- og opdateringstidspunkt.
+
+Når et tøjobjekt slettes, fjernes gemte outfits, som indeholder det pågældende objekt.
+
+Den oprindelige gemmefunktion kræver en primær AI-model med `normalized-v1` og et kompatibelt AI-asset i version 3. Den nye Style Studio skal derfor bruge den samme kontrakt eller have en bevidst tilpasset løsning.
+
+## 4. Den tekniske arkitektur
+
+Den anbefalede sammenkobling er:
+
+**DRESSED Next.js frontend**
+- Wardrobe
+- Style Studio
+- Profile
+- My Looks
+
+↓
+
+**Fælles DRESSED datalag**
+- Supabase-klienter
+- Server Actions
+- API routes
+- Validering
+
+↓
+
+**Supabase**
+- Database
+- Private Storage
+- RLS og brugeradskillelse
+
+↓
+
+**Server-side AI**
+- OpenAI
+- Billedbehandling
+- AI-generering
+- Godkendelse
+- Storage-commit
+
+### Anbefalet projektstruktur
+
+```text
+src/
+├── app/
+│   ├── wardrobe/
+│   ├── style-studio/
+│   ├── outfits/
+│   ├── profile/
+│   └── api/
+│       ├── ai/
+│       ├── wardrobe/
+│       ├── outfits/
+│       └── account/
+│
+├── components/
+│   ├── wardrobe/
+│   ├── style-studio/
+│   ├── profile/
+│   └── outfits/
+│
+├── lib/
+│   ├── supabase/
+│   │   ├── client.js
+│   │   ├── server.js
+│   │   └── admin.js
+│   │
+│   ├── wardrobe/
+│   │   ├── categories.js
+│   │   ├── items.js
+│   │   ├── assets.js
+│   │   └── placement.js
+│   │
+│   ├── outfits/
+│   │   └── outfits.js
+│   │
+│   ├── ai/
+│   │   ├── generation.js
+│   │   └── quota.js
+│   │
+│   └── storage/
+│       └── storage.js
+```
+
+Dette er den anbefalede målstruktur, ikke en beskrivelse af allerede implementerede filer.
+
+### Supabase-klienter
+
+Der skal fortsat være tre forskellige klienter:
+
+- Browser-klient til almindelig brugerinteraktion.
+- Server-klient til autentificerede serveroperationer.
+- Admin-klient til betroede serveroperationer med service role.
+
+Admin-klienten må aldrig importeres i browserkode.
+
+`SUPABASE_SERVICE_ROLE_KEY` og `OPENAI_API_KEY` skal forblive server-side.
+
+## 5. Migrationerne – gennemført og resterende
+
+Der er 16 almindelige migrationsfiler i den oprindelige pakke. Seks er bekræftet gennemført.
+
+### Gennemførte migrationer
+
+| Fil | Funktion | Status |
+|---|---|---|
+| 202610040001_dressed_ai_wardrobe.sql | Grundstruktur for AI Wardrobe, characters, wardrobe og kvoter | Gennemført |
+| 202610040002_character_bound_clothing_assets.sql | Karaktertilknyttede clothing assets | Gennemført |
+| 202610040005_clothing_previews_and_asset_versions.sql | Clothing previews og asset versions | Gennemført |
+| 202610040008_clothing_ai_generation_commit.sql | Commit-funktion til clothing AI-generering | Gennemført |
+| 202610040010_base_type_clothing_assets.sql | Base types og ny asset-struktur | Gennemført |
+| 202610040011_secure_clothing_generation_finalization.sql | Sikker server-side afslutning af clothing-generering | Gennemført |
+
+### Resterende almindelige migrationsfiler
+
+| Rækkefølge | Original migrationsfil | Formål |
+|---:|---|---|
+| 007 | 202610040012_normalized_character_geometry_and_saved_outfits.sql | Normaliseret modelgeometri og gemte outfits |
+| 008 | 202610040013_add_socks_category.sql | Tilføjer socks som gyldig databasekategori |
+| 009 | 202610040014_fix_save_dressed_outfit_ambiguity.sql | Retter fejl i gemmefunktionen |
+| 010 | 202610040015_ai_quota_limits_and_owner_exemption.sql | Kvoter og ejerundtagelse |
+| 011 | 202610040016_background_ai_generation_finalization.sql | Afslutning af baggrundsgenerering |
+| 012 | 202610050002_wardrobe_items_placement.sql | Gemmer placering af tøj |
+| 013 | 202610050003_fix_wardrobe_items_placement_check.sql | Retter validering af placering |
+| 014 | 202610060001_finish_ai_generation_server_return_contract.sql | Retter returkontrakten for AI-generering |
+| 015 | 202610060002_placement_free_scale.sql | Tilføjer fri X/Y-skalering |
+| 016 | 202610070001_account_security_and_user_isolation.sql | Sikkerhed, RLS og brugeradskillelse |
+
+Der er altså 10 almindelige migrationsfiler tilbage i den oprindelige migrationspakke.
+
+Listen er den oprindelige filrækkefølge, ikke en godkendelse af at køre alle ti ukritisk. Vi skal kontrollere afhængigheder og den aktuelle database, især omkring AI-funktionerne og allerede oprettede policies.
+
+### Migration, der ikke skal køres
+
+`202610050001_clothing_quota_override_test_user.sql`
+
+Denne migration er specifikt til en testbruger. Den skal ikke køres som en almindelig produktionsmigration.
+
+## 6. Vigtige rettelser og kompatibilitetsproblemer
+
+### Migration 013 – socks
+
+Den SQL, der tidligere blev givet til migration 013, har samme kategori-liste og samme grundlæggende funktion som originalen.
+
+Den udvider `wardrobe_items_category_check` og inkluderer `socks`.
+
+Det betyder ikke automatisk, at alle nye frontendværdier er kompatible. Den nye frontend skal normalisere sine værdier til de gyldige databasekategorier.
+
+### Migration 014 – saved outfits
+
+Denne migration er nødvendig.
+
+Den retter en tvetydighed i `save_dressed_outfit`, hvor kolonnen `character_id` kunne forveksles med en returvariabel i PL/pgSQL.
+
+Migration 012 og migration 014 skal derfor begge indgå i migrationsrækken.
+
+### Migration 015 – AI-kvoter
+
+Den ændrer standardkvoterne til:
+
+| Generering | Gratis antal |
+|---|---:|
+| Character | 1 |
+| Clothing | 3 |
+| Try-on | 1 |
+
+Ejerundtagelsen baseres på `app_metadata.is_owner`.
+
+Dette skal kontrolleres mod den nye bruger- og betalingsmodel. Vi skal ikke antage, at disse kvoter er de endelige kommercielle vilkår for DRESSED.
+
+### Migration 016 – baggrundsgenerering
+
+Den sikrer, at baggrundsprocesser kan afslutte AI-generering sikkert via service role.
+
+Den skal sammenholdes med de nye Next.js API-ruter, så alle genereringer bliver afsluttet korrekt, og forbrugte kvoter bliver frigivet igen ved fejl.
+
+### Placering og fri skalering
+
+Migrationerne 050002, 050003 og 060002 udgør en sammenhængende række:
+
+1. Først oprettes `placement`.
+2. Derefter rettes JSONB-valideringen.
+3. Til sidst udvides den med `scaleX` og `scaleY`.
+
+Den seneste migration bevarer den gamle proportional-skalering og tillader desuden fri skalering i X- og Y-retningen.
+
+### Sikkerhed og brugeradskillelse
+
+Migration 070001 er særlig vigtig.
+
+Den:
+
+- Sikrer brugerbaseret adgang til profiler.
+- Sikrer brugerbaseret adgang til private billeder.
+- Bevarer systemets adgang til base forms.
+- Fjerner ukendte policies, så der ikke opstår utilsigtede adgangsregler.
+- Begrænser brugernes adgang til deres egne mapper.
+
+Den skal kontrolleres ekstra grundigt, fordi `profiles` allerede blev oprettet manuelt i det nye Supabase-projekt.
+
+## 7. Det, der allerede er oprettet i det nye projekt
+
+Følgende er tidligere bekræftet i opsætningen:
+
+| Område | Status |
+|---|---|
+| Next.js-projekt | Oprettet |
+| Supabase browser-klient | Oprettet |
+| Supabase server-klient | Oprettet |
+| Supabase admin-klient | Oprettet |
+| Private model-images bucket | Oprettet |
+| Private profile-images bucket | Oprettet |
+| profiles-tabel | Oprettet manuelt |
+| Login og routes | Grundstruktur oprettet |
+| Demo-Wardrobe | Findes |
+| Fælles datalag for den nye Wardrobe | Skal kontrolleres |
+| Fælles datalag for Style Studio | Skal kontrolleres |
+| AI-generation i Next.js | Skal kontrolleres |
+| Outfit-integration | Skal kontrolleres |
+
+Det er vigtigt at skelne mellem en visuel prototype og en færdig integration. At en Wardrobe-side kan vise demo-items betyder ikke, at den allerede bruger `wardrobe_items` og `wardrobe_item_ai_assets`.
+
+## 8. Kontrolpunkter før migrationsrækken færdiggøres
+
+Følgende skal kontrolleres i den nye Next.js-kode:
+
+- [ ] Kategorier matcher de 22 originale databaseværdier.
+- [ ] Filtergrupper er adskilt fra databasekategorier.
+- [ ] Underkategorier har en entydig mapping til databasekategorier.
+- [ ] Wardrobe bruger den fælles `wardrobe_items`-tabel.
+- [ ] Originalbilleder og AI-assets gemmes separat.
+- [ ] AI-assets er knyttet til korrekt bruger og modeltype.
+- [ ] Style Studio bruger samme garderobedata.
+- [ ] Placering og skalering gemmes i `placement`.
+- [ ] Gemte outfits bruger `saved_dressed_outfits`.
+- [ ] AI-kvoter styres af serverfunktionerne.
+- [ ] Private storage buckets har korrekte RLS-politikker.
+- [ ] Sletning af brugere og tøjobjekter håndteres korrekt.
+
+## 9. Anbefalet implementeringsrækkefølge
+
+Vi skal ikke fortsætte med at køre SQL alene. Den anbefalede rækkefølge er:
+
+1. Kontrollere den nye Next.js-kodes garderobekategorier og datafelter.
+2. Kontrollere databasefunktionerne mod de nye API-ruter.
+3. Kontrollere `profiles`, RLS og storage-politikker.
+4. Færdiggøre og verificere de resterende migrationer i korrekt rækkefølge.
+5. Bygge det fælles Wardrobe-datalag.
+6. Koble Style Studio på de samme data.
+7. Koble Saved Outfits på.
+8. Koble AI-processerne på.
+9. Teste hele brugerrejsen med en ny konto.
+
+## 10. Konklusion
+
+Den oprindelige DRESSED-løsning har allerede en mere avanceret garderobestruktur end en almindelig CRUD-garderobe. Den indeholder både kategorimapping, modeltilpassede AI-assets, placering, fri skalering, outfit-lagring og brugerbaseret sikkerhed.
+
+Den nye Next.js-løsning skal derfor ikke blot kopiere den gamle databases tabelnavne. Den skal også bevare de relationer og kontrakter, som den gamle frontend og backend forventer.
+
+Den vigtigste beslutning er at beholde den gamle garderobes datamodel som fundament og bygge den nye brugergrænseflade ovenpå den.
+
+## 11. Hvad der mangler for at kunne godkende integrationen
+
+Den gamle ZIP er gennemgået, men den aktuelle nye Next.js-kildekode er endnu ikke fuldt sammenholdt med den gamle løsning.
+
+Derfor kan vi ikke endnu godkende, at alle komponenter og API-ruter matcher databasen.
+
+Følgende dele af det nye projekt skal gennemgås:
+
+1. `src/app/wardrobe/page.jsx`
+2. Komponenter til upload, kategorier og tøjkort.
+3. `src/app/style-studio/`
+4. `src/app/outfits/`
+5. Eventuelle API-ruter og Supabase-kald.
+
+Når disse er kontrolleret, skal der udarbejdes en endelig migrationsplan, hvor hver migration markeres som:
+
+- Kør.
+- Tilpas.
+- Spring over.
+
+Først derefter fortsætter SQL-arbejdet.
+
+**Det overordnede mål er at bygge videre på den eksisterende DRESSED-løsning – ikke at skabe en ny garderobe, som ikke længere passer til det gamle projekt.**

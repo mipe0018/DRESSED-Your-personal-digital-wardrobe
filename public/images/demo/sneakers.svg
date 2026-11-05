@@ -1,0 +1,43 @@
+
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 360">
+  <!-- Main shoe shape -->
+  <path
+    d="M35 205 Q65 195 95 125 L145 145 Q165 195 210 205 L260 225 Q280 240 270 275 L35 275 Q15 260 35 205Z"
+    fill="#F9F7F2"
+    stroke="#A49A91"
+    stroke-width="5"
+    stroke-linejoin="round"
+  />
+
+  <!-- Sole -->
+  <path
+    d="M35 245 Q110 260 270 245 L270 275 L35 275Z"
+    fill="#E9DDF0"
+    stroke="#A49A91"
+    stroke-width="4"
+  />
+
+  <!-- Shoe detail -->
+  <path
+    d="M95 125 L125 180 L180 205"
+    fill="none"
+    stroke="#D9A4BD"
+    stroke-width="8"
+  />
+
+  <!-- Laces -->
+  <path
+    d="M112 170 L165 185 M105 185 L155 200 M100 200 L145 215"
+    stroke="#A49A91"
+    stroke-width="5"
+    stroke-linecap="round"
+  />
+
+  <!-- Decorative detail -->
+  <path
+    d="M55 225 Q90 235 125 225"
+    fill="none"
+    stroke="#D9A4BD"
+    stroke-width="5"
+  />
+</svg>
