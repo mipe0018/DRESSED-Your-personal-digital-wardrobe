@@ -5,6 +5,14 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import {
+  CAMERA_PRESETS,
+  CAMERA_PRESET_KEYS,
+  ZOOM_IN_FACTOR,
+  ZOOM_OUT_FACTOR,
+  createCameraNavigator,
+} from "./camera-navigation.js";
+import "./model-inspector.css";
 
 const MODELS = {
   dressed: {
@@ -17,156 +25,312 @@ const MODELS = {
   },
 };
 
+function disposeObjectResources(root) {
+  if (!root) return;
+
+  const geometries = new Set();
+  const materials = new Set();
+  const textures = new Set();
+  const skeletons = new Set();
+
+  if (root.isScene) {
+    if (root.background?.isTexture) textures.add(root.background);
+    if (root.environment?.isTexture) textures.add(root.environment);
+  }
+
+  root.traverse((object) => {
+    if (object.geometry) geometries.add(object.geometry);
+    if (object.skeleton) skeletons.add(object.skeleton);
+
+    const objectMaterials = Array.isArray(object.material)
+      ? object.material
+      : object.material
+        ? [object.material]
+        : [];
+
+    objectMaterials.forEach((material) => materials.add(material));
+  });
+
+  materials.forEach((material) => {
+    Object.values(material).forEach((value) => {
+      if (value?.isTexture) textures.add(value);
+    });
+
+    Object.values(material.uniforms ?? {}).forEach((uniform) => {
+      if (uniform?.value?.isTexture) textures.add(uniform.value);
+    });
+  });
+
+  textures.forEach((texture) => texture.dispose());
+  materials.forEach((material) => material.dispose());
+  geometries.forEach((geometry) => geometry.dispose());
+  skeletons.forEach((skeleton) => skeleton.dispose());
+}
+
 export default function ModelInspector() {
   const mountRef = useRef(null);
   const engineRef = useRef(null);
   const modelRef = useRef(null);
+  const loadRequestRef = useRef(0);
 
   const [selectedModel, setSelectedModel] = useState("dressed");
   const [modelInfo, setModelInfo] = useState(null);
+  const [activePreset, setActivePreset] = useState("front");
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [modelError, setModelError] = useState("");
+  const [rendererError, setRendererError] = useState("");
+  const [contextLost, setContextLost] = useState(false);
+  const [modelRetry, setModelRetry] = useState(0);
+  const [rendererRetry, setRendererRetry] = useState(0);
+
+  const errorMessage = contextLost
+    ? "The WebGL context was lost. The browser is attempting to restore the 3D view."
+    : rendererError || modelError;
+  const cameraControlsDisabled =
+    !modelInfo || Boolean(rendererError) || contextLost;
 
   useEffect(() => {
     const mount = mountRef.current;
     if (!mount) return;
 
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color("#f7edf2");
+    let scene = null;
+    let camera = null;
+    let renderer = null;
+    let controls = null;
+    let navigation = null;
+    let resizeObserver = null;
+    let animationFrame = null;
+    let engine = null;
+    let disposed = false;
+    let active = true;
 
-    const camera = new THREE.PerspectiveCamera(
-      40,
-      mount.clientWidth / mount.clientHeight,
-      0.01,
-      100
-    );
+    setRendererError("");
+    setContextLost(false);
 
-    camera.position.set(0, 1, 3.5);
+    function handleContextLost(event) {
+      event.preventDefault();
+      if (disposed) return;
 
-    const renderer = new THREE.WebGLRenderer({
-      antialias: true,
-      alpha: false,
-    });
+      if (engine) engine.contextLost = true;
+      setContextLost(true);
+    }
 
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setSize(mount.clientWidth, mount.clientHeight);
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-    mount.appendChild(renderer.domElement);
+    function handleContextRestored() {
+      if (disposed) return;
 
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.07;
-    controls.target.set(0, 0.9, 0);
-    controls.minDistance = 0.5;
-    controls.maxDistance = 8;
+      if (engine) engine.contextLost = false;
+      setContextLost(false);
+    }
 
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x9b8290, 2));
+    function cleanup() {
+      if (disposed) return;
+      disposed = true;
 
-    const keyLight = new THREE.DirectionalLight(0xffffff, 2.5);
-    keyLight.position.set(3, 5, 4);
-    scene.add(keyLight);
+      if (engine) engine.disposed = true;
+      if (animationFrame !== null) cancelAnimationFrame(animationFrame);
+      resizeObserver?.disconnect();
 
-    const fillLight = new THREE.DirectionalLight(0xffffff, 1.2);
-    fillLight.position.set(-4, 2, -3);
-    scene.add(fillLight);
-
-    const grid = new THREE.GridHelper(4, 20, 0xc9aebe, 0xe5d5df);
-    grid.position.y = 0;
-    scene.add(grid);
-
-    const axes = new THREE.AxesHelper(0.5);
-    scene.add(axes);
-
-    engineRef.current = {
-      scene,
-      camera,
-      renderer,
-      controls,
-      grid,
-    };
-
-    let animationFrame;
-
-    const animate = () => {
-      animationFrame = requestAnimationFrame(animate);
-      controls.update();
-      renderer.render(scene, camera);
-    };
-
-    animate();
-
-    const resizeObserver = new ResizeObserver(() => {
-      if (!mount.clientWidth || !mount.clientHeight) return;
-
-      camera.aspect = mount.clientWidth / mount.clientHeight;
-      camera.updateProjectionMatrix();
-
-      renderer.setSize(mount.clientWidth, mount.clientHeight);
-    });
-
-    resizeObserver.observe(mount);
-
-    return () => {
-      cancelAnimationFrame(animationFrame);
-      resizeObserver.disconnect();
-
-      controls.dispose();
-
-      if (modelRef.current) {
-        scene.remove(modelRef.current);
-        modelRef.current = null;
+      if (renderer) {
+        renderer.domElement.removeEventListener(
+          "webglcontextlost",
+          handleContextLost
+        );
+        renderer.domElement.removeEventListener(
+          "webglcontextrestored",
+          handleContextRestored
+        );
       }
 
-      renderer.dispose();
+      navigation?.dispose();
+      controls?.dispose();
 
-      if (renderer.domElement.parentNode === mount) {
+      if (scene) {
+        disposeObjectResources(scene);
+        scene.clear();
+      }
+
+      renderer?.dispose();
+
+      if (renderer?.domElement.parentNode === mount) {
         mount.removeChild(renderer.domElement);
       }
 
-      engineRef.current = null;
+      if (engineRef.current === engine) {
+        engineRef.current = null;
+        modelRef.current = null;
+      }
+    }
+
+    try {
+      const width = mount.clientWidth || 1;
+      const height = mount.clientHeight || 1;
+
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color("#f7edf2");
+
+      camera = new THREE.PerspectiveCamera(40, width / height, 0.01, 100);
+      camera.position.set(0, 1, 3.5);
+
+      renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        alpha: false,
+      });
+
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.setSize(width, height);
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      mount.appendChild(renderer.domElement);
+
+      renderer.domElement.addEventListener(
+        "webglcontextlost",
+        handleContextLost
+      );
+      renderer.domElement.addEventListener(
+        "webglcontextrestored",
+        handleContextRestored
+      );
+
+      controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.07;
+      controls.target.set(0, 0.9, 0);
+      controls.minDistance = 0.5;
+      controls.maxDistance = 8;
+      controls.listenToKeyEvents(renderer.domElement);
+
+      renderer.domElement.tabIndex = 0;
+      renderer.domElement.setAttribute("role", "img");
+      renderer.domElement.setAttribute(
+        "aria-label",
+        "Interactive 3D model. Drag to rotate, scroll to zoom, right-drag to pan, or use the camera controls."
+      );
+
+      navigation = createCameraNavigator({
+        camera,
+        controls,
+        onActivePresetChange: (preset) => {
+          setActivePreset(preset);
+        },
+        shouldReduceMotion: () =>
+          window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+      });
+
+      scene.add(new THREE.HemisphereLight(0xffffff, 0x9b8290, 2));
+
+      const keyLight = new THREE.DirectionalLight(0xffffff, 2.5);
+      keyLight.position.set(3, 5, 4);
+      scene.add(keyLight);
+
+      const fillLight = new THREE.DirectionalLight(0xffffff, 1.2);
+      fillLight.position.set(-4, 2, -3);
+      scene.add(fillLight);
+
+      const grid = new THREE.GridHelper(4, 20, 0xc9aebe, 0xe5d5df);
+      grid.position.y = 0;
+      scene.add(grid);
+
+      const axes = new THREE.AxesHelper(0.5);
+      scene.add(axes);
+
+      engine = {
+        scene,
+        camera,
+        renderer,
+        controls,
+        navigation,
+        grid,
+        contextLost: false,
+        disposed: false,
+      };
+      engineRef.current = engine;
+
+      const animate = () => {
+        if (disposed) return;
+
+        animationFrame = requestAnimationFrame(animate);
+        navigation.update(performance.now());
+
+        if (!engine.contextLost) {
+          renderer.render(scene, camera);
+        }
+      };
+
+      animate();
+
+      resizeObserver = new ResizeObserver(() => {
+        if (disposed || !mount.clientWidth || !mount.clientHeight) return;
+
+        const previousAspect = camera.aspect;
+        const nextAspect = mount.clientWidth / mount.clientHeight;
+
+        renderer.setSize(mount.clientWidth, mount.clientHeight);
+        camera.aspect = nextAspect;
+        camera.updateProjectionMatrix();
+        navigation.resize(previousAspect, nextAspect);
+      });
+
+      resizeObserver.observe(mount);
+    } catch (err) {
+      console.error("3D renderer initialization error:", err);
+      cleanup();
+      queueMicrotask(() => {
+        if (!active) return;
+
+        setRendererError(
+          "The 3D viewer could not be initialized. Check that WebGL and hardware acceleration are available, then try again."
+        );
+      });
+    }
+
+    return () => {
+      active = false;
+      cleanup();
     };
-  }, []);
+  }, [rendererRetry]);
 
   useEffect(() => {
     const engine = engineRef.current;
-    if (!engine) return;
+    if (!engine || engine.disposed) return;
 
+    const requestId = ++loadRequestRef.current;
+    const modelDefinition = MODELS[selectedModel];
     let cancelled = false;
+
+    function isObsolete() {
+      return (
+        cancelled ||
+        loadRequestRef.current !== requestId ||
+        engineRef.current !== engine ||
+        engine.disposed
+      );
+    }
 
     async function loadModel() {
       setLoading(true);
-      setError("");
-      setModelInfo(null);
+      setModelError("");
 
-      if (modelRef.current) {
-        engine.scene.remove(modelRef.current);
-
-        modelRef.current.traverse((object) => {
-          if (!object.isMesh) return;
-
-          object.geometry.dispose();
-
-          const materials = Array.isArray(object.material)
-            ? object.material
-            : [object.material];
-
-          materials.forEach((material) => {
-            if (material) material.dispose();
-          });
-        });
-
-        modelRef.current = null;
+      if (!modelRef.current) {
+        setModelInfo(null);
       }
+
+      let candidate = null;
 
       try {
         const loader = new GLTFLoader();
-        const gltf = await loader.loadAsync(
-          MODELS[selectedModel].path
-        );
+        const gltf = await loader.loadAsync(modelDefinition.path);
+        candidate = gltf.scene;
 
-        if (cancelled) return;
+        if (!candidate) {
+          throw new Error("The GLB file does not contain a displayable scene.");
+        }
 
-        const model = gltf.scene;
+        if (isObsolete()) {
+          disposeObjectResources(candidate);
+          candidate = null;
+          return;
+        }
+
+        const model = candidate;
         model.updateMatrixWorld(true);
 
         const box = new THREE.Box3().setFromObject(model);
@@ -177,13 +341,10 @@ export default function ModelInspector() {
         box.getCenter(center);
 
         // Center model horizontally and place its lowest point at Y=0.
-        model.position.set(
-          -center.x,
-          -box.min.y,
-          -center.z
-        );
-
+        model.position.set(-center.x, -box.min.y, -center.z);
         model.updateMatrixWorld(true);
+
+        const normalizedBounds = new THREE.Box3().setFromObject(model);
 
         let meshes = 0;
         let vertices = 0;
@@ -219,20 +380,8 @@ export default function ModelInspector() {
           object.frustumCulled = true;
         });
 
-        engine.scene.add(model);
-        modelRef.current = model;
-
-        engine.controls.target.set(0, size.y / 2, 0);
-        engine.camera.position.set(0, size.y / 2, size.y * 2.2);
-        engine.camera.near = Math.max(size.y / 1000, 0.001);
-        engine.camera.far = size.y * 20;
-        engine.camera.updateProjectionMatrix();
-        engine.controls.update();
-
-        engine.grid.position.y = 0;
-
-        setModelInfo({
-          name: MODELS[selectedModel].label,
+        const nextModelInfo = {
+          name: modelDefinition.label,
           width: size.x,
           height: size.y,
           depth: size.z,
@@ -245,16 +394,38 @@ export default function ModelInspector() {
           uv,
           skins: gltf.parser.json.skins?.length ?? 0,
           animations: gltf.animations.length,
-        });
+        };
+
+        engine.navigation.setBounds(normalizedBounds);
+
+        const previousModel = modelRef.current;
+        engine.scene.add(model);
+        modelRef.current = model;
+        candidate = null;
+
+        if (previousModel && previousModel !== model) {
+          engine.scene.remove(previousModel);
+          disposeObjectResources(previousModel);
+        }
+
+        engine.navigation.reset({ immediate: true });
+        engine.grid.position.y = 0;
+        setModelInfo(nextModelInfo);
       } catch (err) {
-        if (!cancelled) {
+        if (candidate) {
+          candidate.removeFromParent();
+          disposeObjectResources(candidate);
+          candidate = null;
+        }
+
+        if (!isObsolete()) {
           console.error("GLB loading error:", err);
-          setError(
-            "Modellen kunne ikke indlæses. Kontrollér at GLB-filen findes i public/model-3d."
+          setModelError(
+            "The model could not be loaded. Check that the GLB file exists in public/model-3d and is valid, then try again."
           );
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!isObsolete()) setLoading(false);
       }
     }
 
@@ -263,56 +434,105 @@ export default function ModelInspector() {
     return () => {
       cancelled = true;
     };
-  }, [selectedModel]);
+  }, [selectedModel, modelRetry, rendererRetry]);
+
+  function runCameraCommand(command) {
+    const engine = engineRef.current;
+
+    if (
+      !engine ||
+      engine.disposed ||
+      engine.contextLost ||
+      !engine.navigation.hasBounds()
+    ) {
+      return;
+    }
+
+    command(engine.navigation);
+  }
 
   function setView(view) {
-    const engine = engineRef.current;
-    if (!engine || !modelInfo) return;
+    runCameraCommand((navigation) => navigation.setView(view));
+  }
 
-    const target = new THREE.Vector3(
-      0,
-      modelInfo.height / 2,
-      0
+  function handleViewportKeyDown(event) {
+    if (
+      event.target.closest(
+        "button, input, select, textarea, [contenteditable='true']"
+      )
+    ) {
+      return;
+    }
+
+    if (event.key.startsWith("Arrow")) {
+      runCameraCommand((navigation) => navigation.handleManualNavigation());
+      return;
+    }
+
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+
+    const preset = CAMERA_PRESET_KEYS.find(
+      (key) => CAMERA_PRESETS[key].shortcut === event.key
     );
 
-    const distance = modelInfo.height * 2.2;
+    if (preset) {
+      event.preventDefault();
+      setView(preset);
+      return;
+    }
 
-    const positions = {
-      front: [0, target.y, distance],
-      back: [0, target.y, -distance],
-      side: [distance, target.y, 0],
-      threeQuarter: [
-        distance * 0.7,
-        target.y,
-        distance * 0.7,
-      ],
-    };
+    switch (event.key.toLowerCase()) {
+      case "r":
+        event.preventDefault();
+        runCameraCommand((navigation) => navigation.reset());
+        break;
+      case "f":
+        event.preventDefault();
+        runCameraCommand((navigation) => navigation.fit());
+        break;
+      case "+":
+      case "=":
+        event.preventDefault();
+        runCameraCommand((navigation) => navigation.zoom(ZOOM_IN_FACTOR));
+        break;
+      case "-":
+        event.preventDefault();
+        runCameraCommand((navigation) => navigation.zoom(ZOOM_OUT_FACTOR));
+        break;
+      default:
+        break;
+    }
+  }
 
-    const position = positions[view];
+  function retryViewer() {
+    if (rendererError) {
+      setRendererRetry((attempt) => attempt + 1);
+      return;
+    }
 
-    engine.controls.target.copy(target);
-    engine.camera.position.set(...position);
-    engine.controls.update();
+    if (modelError) {
+      setModelRetry((attempt) => attempt + 1);
+    }
   }
 
   return (
-    <main style={styles.page}>
-      <header style={styles.header}>
+    <main className="dressed-mi-page">
+      <header className="dressed-mi-header">
         <div>
-          <span style={styles.eyebrow}>DRESSED / DEVELOPMENT</span>
-          <h1 style={styles.heading}>3D Model Inspector</h1>
-          <p style={styles.description}>
+          <span className="dressed-mi-eyebrow">DRESSED / DEVELOPMENT</span>
+          <h1 className="dressed-mi-heading">3D Model Inspector</h1>
+          <p className="dressed-mi-description">
             Inspect, rotate and compare original GLB models.
           </p>
         </div>
 
-        <span style={styles.status}>READ ONLY</span>
+        <span className="dressed-mi-status">READ ONLY</span>
       </header>
 
-      <section style={styles.layout}>
-        <div style={styles.viewerColumn}>
-          <div style={styles.toolbar}>
-            <label style={styles.label} htmlFor="model-select">
+      <section className="dressed-mi-layout">
+        <div className="dressed-mi-viewerColumn">
+          <div className="dressed-mi-toolbar">
+            <label className="dressed-mi-label" htmlFor="model-select">
               SELECT MODEL
             </label>
 
@@ -322,91 +542,199 @@ export default function ModelInspector() {
               onChange={(event) =>
                 setSelectedModel(event.target.value)
               }
-              style={styles.select}
+              className="dressed-mi-select"
             >
               <option value="dressed">DRESSED Base</option>
               <option value="mannequin">Mannequin</option>
             </select>
           </div>
 
-          <div style={styles.viewer}>
-            <div ref={mountRef} style={styles.canvas} />
+          <div
+            className="dressed-mi-viewer"
+            aria-busy={loading && !errorMessage}
+            aria-describedby="model-viewport-instructions"
+            aria-label="3D model inspection viewport"
+            role="region"
+            onKeyDown={handleViewportKeyDown}
+          >
+            <div ref={mountRef} className="dressed-mi-canvas" />
 
-            {loading && (
-              <div style={styles.overlay}>
+            <span id="model-viewport-instructions" className="dressed-mi-srOnly">
+              Drag to rotate, scroll to zoom, and right-drag to pan. When the
+              canvas is focused, use arrow keys to pan and Shift, Control, or
+              Command with arrow keys to rotate. Camera shortcuts: 1 Front, 2
+              Back, 3 Left, 4 Right, 5 three-quarter, R reset, F fit, plus to
+              zoom in, and minus to zoom out.
+            </span>
+
+            {loading && !errorMessage && !modelInfo && (
+              <div className="dressed-mi-overlay" role="status" aria-live="polite">
                 Loading 3D model...
               </div>
             )}
 
-            {error && (
-              <div style={styles.overlay}>
-                {error}
+            {loading && !errorMessage && modelInfo && (
+              <span
+                className="dressed-mi-loadingBadge"
+                role="status"
+                aria-live="polite"
+              >
+                Loading 3D model...
+              </span>
+            )}
+
+            {errorMessage && (
+              <div className="dressed-mi-overlay" role="alert">
+                <div>
+                  <p className="dressed-mi-errorMessage">{errorMessage}</p>
+                  {!contextLost && (rendererError || modelError) && (
+                    <button
+                      type="button"
+                      onClick={retryViewer}
+                      className="dressed-mi-button"
+                    >
+                      Retry
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 
-            {!loading && !error && (
-              <span style={styles.viewerHint}>
-                Drag to rotate · Scroll to zoom
+            {modelInfo && !errorMessage && (
+              <span className="dressed-mi-viewerHint" aria-hidden="true">
+                Drag to rotate · Scroll to zoom · Right-drag to pan
               </span>
             )}
           </div>
 
-          <div style={styles.viewControls}>
-            <button onClick={() => setView("front")} style={styles.button}>
-              Front
-            </button>
-            <button onClick={() => setView("side")} style={styles.button}>
-              Side
-            </button>
-            <button onClick={() => setView("back")} style={styles.button}>
-              Back
-            </button>
-            <button
-              onClick={() => setView("threeQuarter")}
-              style={styles.button}
+          <div className="dressed-mi-viewControls">
+            <div
+              className="dressed-mi-controlGroup"
+              role="group"
+              aria-label="Camera presets"
             >
-              ¾ View
-            </button>
+              {CAMERA_PRESET_KEYS.map((key) => {
+                const definition = CAMERA_PRESETS[key];
+                const isActive = activePreset === key;
+
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    className={`dressed-mi-button${isActive ? " dressed-mi-activeButton" : ""}`}
+                    onClick={() => setView(key)}
+                    disabled={cameraControlsDisabled}
+                    aria-pressed={isActive}
+                    aria-label={`${definition.label} camera preset`}
+                    aria-keyshortcuts={definition.shortcut}
+                    title={`${definition.label} (${definition.shortcut})`}
+                  >
+                    {definition.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div
+              className="dressed-mi-controlGroup"
+              role="group"
+              aria-label="Camera actions"
+            >
+              <button
+                type="button"
+                className="dressed-mi-button"
+                onClick={() =>
+                  runCameraCommand((navigation) => navigation.reset())
+                }
+                disabled={cameraControlsDisabled}
+                aria-label="Reset camera to the fitted front view"
+                aria-keyshortcuts="R"
+                title="Reset Camera (R)"
+              >
+                Reset Camera
+              </button>
+              <button
+                type="button"
+                className="dressed-mi-button"
+                onClick={() => runCameraCommand((navigation) => navigation.fit())}
+                disabled={cameraControlsDisabled}
+                aria-label="Fit the current model to the viewport"
+                aria-keyshortcuts="F"
+                title="Fit to View (F)"
+              >
+                Fit to View
+              </button>
+              <button
+                type="button"
+                className="dressed-mi-button"
+                onClick={() =>
+                  runCameraCommand((navigation) =>
+                    navigation.zoom(ZOOM_IN_FACTOR)
+                  )
+                }
+                disabled={cameraControlsDisabled}
+                aria-label="Zoom in on the current model"
+                aria-keyshortcuts="+"
+                title="Zoom In (+)"
+              >
+                Zoom In
+              </button>
+              <button
+                type="button"
+                className="dressed-mi-button"
+                onClick={() =>
+                  runCameraCommand((navigation) =>
+                    navigation.zoom(ZOOM_OUT_FACTOR)
+                  )
+                }
+                disabled={cameraControlsDisabled}
+                aria-label="Zoom out from the current model"
+                aria-keyshortcuts="-"
+                title="Zoom Out (-)"
+              >
+                Zoom Out
+              </button>
+            </div>
           </div>
         </div>
 
-        <aside style={styles.panel}>
-          <h2 style={styles.panelHeading}>Model information</h2>
+        <aside className="dressed-mi-panel">
+          <h2 className="dressed-mi-panelHeading">Model information</h2>
 
           {modelInfo ? (
             <>
-              <p style={styles.modelName}>{modelInfo.name}</p>
+              <p className="dressed-mi-modelName">{modelInfo.name}</p>
 
-              <h3 style={styles.sectionHeading}>DIMENSIONS</h3>
+              <h3 className="dressed-mi-sectionHeading">DIMENSIONS</h3>
 
-              <div style={styles.metricGrid}>
+              <div className="dressed-mi-metricGrid">
                 <Metric label="Width" value={modelInfo.width} />
                 <Metric label="Height" value={modelInfo.height} />
                 <Metric label="Depth" value={modelInfo.depth} />
               </div>
 
-              <h3 style={styles.sectionHeading}>GEOMETRY</h3>
+              <h3 className="dressed-mi-sectionHeading">GEOMETRY</h3>
 
               <InfoRow label="Meshes" value={modelInfo.meshes} />
               <InfoRow label="Vertices" value={modelInfo.vertices.toLocaleString("en-US")} />
               <InfoRow label="Triangles" value={modelInfo.triangles.toLocaleString("en-US")} />
               <InfoRow label="Materials" value={modelInfo.materials} />
 
-              <h3 style={styles.sectionHeading}>TECHNICAL</h3>
+              <h3 className="dressed-mi-sectionHeading">TECHNICAL</h3>
 
               <InfoRow label="Normals" value={modelInfo.normals ? "Present" : "Missing"} />
               <InfoRow label="UV coordinates" value={modelInfo.uv ? "Present" : "Missing"} />
               <InfoRow label="Skins" value={modelInfo.skins} />
               <InfoRow label="Animations" value={modelInfo.animations} />
 
-              <div style={styles.note}>
-                Dimensions are displayed in the model's source units.
+              <div className="dressed-mi-note">
+                Dimensions are displayed in the model&apos;s source units.
                 The Y-axis is treated as vertical. Front orientation
                 has not yet been visually verified.
               </div>
             </>
           ) : (
-            <p style={styles.empty}>
+            <p className="dressed-mi-empty">
               Model information will appear here after loading.
             </p>
           )}
@@ -418,9 +746,9 @@ export default function ModelInspector() {
 
 function Metric({ label, value }) {
   return (
-    <div style={styles.metric}>
-      <span style={styles.metricLabel}>{label}</span>
-      <strong style={styles.metricValue}>
+    <div className="dressed-mi-metric">
+      <span className="dressed-mi-metricLabel">{label}</span>
+      <strong className="dressed-mi-metricValue">
         {value?.toFixed(3)}
       </strong>
     </div>
@@ -429,197 +757,9 @@ function Metric({ label, value }) {
 
 function InfoRow({ label, value }) {
   return (
-    <div style={styles.infoRow}>
+    <div className="dressed-mi-infoRow">
       <span>{label}</span>
       <strong>{value}</strong>
     </div>
   );
 }
-
-const styles = {
-  page: {
-    minHeight: "100vh",
-    padding: "40px",
-    background: "#fff8fb",
-    color: "#493440",
-    fontFamily: "Arial, sans-serif",
-  },
-  header: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: "20px",
-    marginBottom: "30px",
-  },
-  eyebrow: {
-    fontSize: "11px",
-    letterSpacing: "2px",
-    color: "#b16b91",
-    fontWeight: 700,
-  },
-  heading: {
-    fontSize: "32px",
-    margin: "10px 0 5px",
-  },
-  description: {
-    color: "#947d8a",
-    fontSize: "14px",
-  },
-  status: {
-    border: "1px solid #d8b4c8",
-    padding: "8px 12px",
-    borderRadius: "20px",
-    fontSize: "10px",
-    letterSpacing: "1px",
-  },
-  layout: {
-    display: "grid",
-    gridTemplateColumns: "minmax(0, 1fr) 300px",
-    gap: "24px",
-    alignItems: "start",
-  },
-  viewerColumn: {
-    minWidth: 0,
-  },
-  toolbar: {
-    display: "flex",
-    alignItems: "center",
-    gap: "15px",
-    padding: "14px",
-    background: "#fff",
-    border: "1px solid #eedce6",
-    borderBottom: "none",
-    borderRadius: "12px 12px 0 0",
-  },
-  label: {
-    fontSize: "10px",
-    letterSpacing: "1px",
-    fontWeight: 700,
-    color: "#947d8a",
-  },
-  select: {
-    padding: "8px 12px",
-    border: "1px solid #e5cbd9",
-    borderRadius: "7px",
-    background: "#fff8fb",
-    color: "#493440",
-  },
-  viewer: {
-    height: "min(70vh, 720px)",
-    minHeight: "450px",
-    position: "relative",
-    overflow: "hidden",
-    background: "#f7edf2",
-    border: "1px solid #eedce6",
-  },
-  canvas: {
-    position: "absolute",
-    inset: 0,
-    width: "100%",
-    height: "100%",
-  },
-  overlay: {
-    position: "absolute",
-    inset: 0,
-    display: "grid",
-    placeItems: "center",
-    background: "rgba(247,237,242,0.85)",
-    padding: "20px",
-    textAlign: "center",
-    color: "#765568",
-    fontSize: "14px",
-  },
-  viewerHint: {
-    position: "absolute",
-    bottom: "15px",
-    left: "15px",
-    fontSize: "11px",
-    color: "#765568",
-    background: "rgba(255,255,255,0.8)",
-    padding: "8px 12px",
-    borderRadius: "20px",
-    pointerEvents: "none",
-  },
-  viewControls: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: "8px",
-    padding: "14px",
-    background: "#fff",
-    border: "1px solid #eedce6",
-    borderTop: "none",
-    borderRadius: "0 0 12px 12px",
-  },
-  button: {
-    border: "1px solid #e5cbd9",
-    background: "#fff8fb",
-    color: "#65495a",
-    padding: "9px 16px",
-    borderRadius: "7px",
-    cursor: "pointer",
-    fontSize: "12px",
-  },
-  panel: {
-    background: "#fff",
-    border: "1px solid #eedce6",
-    borderRadius: "12px",
-    padding: "20px",
-  },
-  panelHeading: {
-    fontSize: "17px",
-    margin: "0 0 15px",
-  },
-  modelName: {
-    color: "#a35e83",
-    fontWeight: 700,
-    fontSize: "14px",
-  },
-  sectionHeading: {
-    fontSize: "10px",
-    letterSpacing: "1.5px",
-    color: "#aa8198",
-    marginTop: "25px",
-    marginBottom: "12px",
-  },
-  metricGrid: {
-    display: "grid",
-    gridTemplateColumns: "1fr",
-    gap: "8px",
-  },
-  metric: {
-    background: "#fff8fb",
-    padding: "12px",
-    borderRadius: "7px",
-    display: "flex",
-    justifyContent: "space-between",
-    gap: "10px",
-  },
-  metricLabel: {
-    fontSize: "12px",
-    color: "#947d8a",
-  },
-  metricValue: {
-    fontSize: "13px",
-  },
-  infoRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    gap: "10px",
-    padding: "9px 0",
-    borderBottom: "1px solid #f2e7ed",
-    fontSize: "12px",
-  },
-  note: {
-    marginTop: "20px",
-    padding: "12px",
-    background: "#fff8fb",
-    borderRadius: "7px",
-    color: "#947d8a",
-    fontSize: "11px",
-    lineHeight: 1.6,
-  },
-  empty: {
-    color: "#947d8a",
-    fontSize: "13px",
-  },
-};
